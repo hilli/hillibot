@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -54,6 +55,7 @@ func main() {
 				case socketmode.EventTypeEventsAPI:
 					// The Event sent on the channel is not the same as the EventAPI events so we need to type cast it
 					eventsAPIEvent, ok := event.Data.(slackevents.EventsAPIEvent)
+					log.Print("Event received: ", eventsAPIEvent)
 					if !ok {
 						log.Printf("Could not type cast the event to the EventsAPIEvent: %v\n", event)
 						continue
@@ -82,7 +84,12 @@ func main() {
 					if err != nil {
 						log.Fatal(err)
 					}
-
+				case socketmode.EventTypeHello:
+					log.Println("Hello event received - We are connected to Slack servers!")
+				case socketmode.EventTypeInvalidAuth:
+					log.Panic("Invalid auth token - Quitting")
+				default:
+					log.Printf("Unknown event type: %s\n", event.Type)
 				}
 			}
 
@@ -190,8 +197,12 @@ func handleAppMentionEvent(event *slackevents.AppMentionEvent, client *slack.Cli
 	if err != nil {
 		return err
 	}
+
+	// Regexp to help remove the @ mention from the message
+	regExp := regexp.MustCompile(`\w?<@(.*?)>\w?`)
+
 	// Check if the user said Hello to the bot
-	text := strings.ToLower(event.Text)
+	log.Printf("Mention:`%s`\n", strings.Trim(regExp.ReplaceAllString(strings.ToLower(event.Text),""), " " + string('\u00a0')))
 
 	// Create the attachment and assigned based on the message
 	attachment := slack.Attachment{}
@@ -205,20 +216,22 @@ func handleAppMentionEvent(event *slackevents.AppMentionEvent, client *slack.Cli
 			Value: user.Name,
 		},
 	}
-	if strings.Contains(text, "hello") {
+	switch text := strings.Trim(regExp.ReplaceAllString(strings.ToLower(event.Text),""), " " + string('\u00a0')); {
+	case strings.Contains(text, "hello"):
 		// Greet the user
 		attachment.Text = fmt.Sprintf("Hello %s", user.Name)
 		attachment.Pretext = "Greetings"
 		attachment.Color = "#4af030"
-	} else if strings.HasPrefix(text, "sym ") {
+	case strings.HasPrefix(text, "sym "):
 		// The user wants to know about SYMBOLS
 		text = strings.Replace(text, "sym ", "", 1)
 		attachment.Text = getSymbolInfo(text)
 		attachment.Pretext = "Symbol Lookup at Yahoo Finance"
 		attachment.Color = "#000000"
-	} else {
+	default:
 		// Send a message to the user
 		attachment.Text = fmt.Sprintf("How can I help you %s?", user.Name)
+		attachment.Text = attachment.Text + "\n\n" + text
 		attachment.Pretext = "How can I be of service"
 		attachment.Color = "#3d3d3d"
 	}
