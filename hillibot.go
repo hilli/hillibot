@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -126,7 +127,7 @@ func handleSymCommand(command slack.SlashCommand, client *slack.Client) error {
 			Value: command.UserName,
 		},
 	}
-	attachment.Text = getSymbolInfo(command.Text)
+	attachment.Text = getSymbolInfo(symbolsToList(command.Text))
 	attachment.Color = "#36a64f"
 
 	// Send the message to the channel
@@ -202,7 +203,7 @@ func handleAppMentionEvent(event *slackevents.AppMentionEvent, client *slack.Cli
 	regExp := regexp.MustCompile(`\w?<@(.*?)>\w?`)
 
 	// Check if the user said Hello to the bot
-	log.Printf("Mention:`%s`\n", strings.Trim(regExp.ReplaceAllString(strings.ToLower(event.Text),""), " " + string('\u00a0')))
+	log.Printf("Mention:`%s`\n", strings.Trim(regExp.ReplaceAllString(strings.ToLower(event.Text), ""), " "+string('\u00a0')))
 
 	// Create the attachment and assigned based on the message
 	attachment := slack.Attachment{}
@@ -216,7 +217,7 @@ func handleAppMentionEvent(event *slackevents.AppMentionEvent, client *slack.Cli
 			Value: user.Name,
 		},
 	}
-	switch text := strings.Trim(regExp.ReplaceAllString(strings.ToLower(event.Text),""), " " + string('\u00a0')); {
+	switch text := strings.Trim(regExp.ReplaceAllString(strings.ToLower(event.Text), ""), " "+string('\u00a0')); {
 	case strings.Contains(text, "hello"):
 		// Greet the user
 		attachment.Text = fmt.Sprintf("Hello %s", user.Name)
@@ -224,8 +225,21 @@ func handleAppMentionEvent(event *slackevents.AppMentionEvent, client *slack.Cli
 		attachment.Color = "#4af030"
 	case strings.HasPrefix(text, "sym "):
 		// The user wants to know about SYMBOLS
-		text = strings.Replace(text, "sym ", "", 1)
-		attachment.Text = getSymbolInfo(text)
+		text = strings.Replace(text, "sym ", "", 1) // Pick the command out of the string
+		buffer := bytes.NewBuffer([]byte{})
+		renderedGraphForSymbols(symbolsToList(text), buffer)
+		params := slack.FileUploadParameters{
+			Channels: []string{event.Channel},
+			Content:  buffer.String(),
+			Filetype: "image/png",
+			Filename: fmt.Sprintf("%s.png", strings.Join(symbolsToList(text), "-")),
+		}
+		file, err := client.UploadFile(params)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("File \"%s\" uploaded to channel %s", file.Name, event.Channel)
+		attachment.Text = getSymbolInfo(symbolsToList(text))
 		attachment.Pretext = "Symbol Lookup at Yahoo Finance"
 		attachment.Color = "#000000"
 	default:
